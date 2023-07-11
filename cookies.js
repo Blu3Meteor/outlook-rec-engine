@@ -1,91 +1,113 @@
 // Retrieve the category object and article array from the cookie or initialize them if the cookie doesn't exist.
-let category = getCookie('category');
-let articles = getCookie('articles');
+// let category = getCookie('category');
+// let articles = getCookie('articles');
 
-if (category) {
-  // Access category properties as needed
-  console.log(category);
+let user_id = "@userID";
+let client_id = "@clientID"
+console.log(user_id,"user_id");
+let temp_user = getCookie('user_id');
+console.log(temp_user,"temp_user");
+if (temp_user){
+  user_id=temp_user
+}else{
+  setCookie('user_id',user_id,30);
 }
+console.log(user_id,"final user_id");
 
-if (articles) {
-  // Access the articles array and iterate over its elements
-  articles.forEach(function(article) {
-    console.log(article);
-  });
+const title = document.getElementsByTagName("title")[0].innerHTML;
+// console.log("Page title: ", title.innerHTML);
+
+const description = document.querySelector('meta[name="description"]').getAttribute('content');
+// console.log("Description: ", description);
+
+const articleTagMetaTags = document.querySelectorAll('meta[property="article:tag"]');
+let tagArray = Array.from(articleTagMetaTags).map(tagMetaTag => tagMetaTag.getAttribute('content'));
+// Convert 'tags' array to JSON string
+tag = "";
+for (let i = 0; i < tagArray.length; i++) {
+  tag += tagArray[i] + ", ";
 }
+// tag = JSON.stringify(tag);
+console.log("Tags :", tag);
 
 
-if (!category) {
-  category = {
-    national: 0,
-    business: 0,
-    crypto: 0,
-    travel: 0,
-    sports: 0,
-    entertainment: 0
-  };
-}
+const summary = document.querySelector('.story-summary').textContent.trim();
+// console.log("Summary: ", summary);
 
-if (!articles) {
-  articles = [];
-}
 
-window.addEventListener('load', function() {
-  // This callback function code will run whenever a new page or resource finishes loading.
 
-  // Example: Log the URL of the newly opened page.
-  let newPageURL = window.location.href;
-
-  const testString = "https://www.outlookindia.com/national/equal-work-unequal-benefits-the-struggle-of-ad-hoc-teachers-for-permanence-and-dignity-news-288857"
-  let newURLPaths = testString.split("/");
-
-  // Split the URL to extract the category and article name.
-  // let newURLPaths = newPageURL.split("/");
-  let newPageCategory = newURLPaths[3];
-  let newPageTitle = newURLPaths[4];
-
-  // Increment the respective category count.
-  switch (newPageCategory) {
-    case "national":
-      category.national++;
-      break;
-
-    case "business":
-      category.business++;
-      break;
-
-    case "crypto":
-      category.crypto++;
-      break;
-
-    case "travel":
-      category.travel++;
-      break;
-
-    case "sports":
-      category.sports++;
-      break;
-
-    case "art-entertainment":
-      category.entertainment++;
-      break;
-
-    default:
-      break;
+let body;
+let publish_date;
+let update_date;
+let author;
+const scriptElements = document.querySelectorAll('script[type="application/ld+json"]');
+for (const scriptElement of scriptElements) {
+  const jsonLD = JSON.parse(scriptElement.textContent);
+  if (jsonLD.articleBody) {
+    body = jsonLD.articleBody;
+    // console.log("Article Body: ",articleBody);
+    publish_date = jsonLD.datePublished;
+    console.log("Published: ", publish_date);
+    update_date = jsonLD.dateModified;
+    // console.log("Modified: ", update_date);
+    author = jsonLD.author[0].name;
+    // console.log("Author: ", author);
   }
+}
 
-  // Add the new article name to the articles array.
-  articles.push(newPageTitle);
+publish_date = new Date(publish_date).toISOString();
+update_date = new Date(update_date).toISOString();
 
-  // Update the cookie with the updated category and article information.
-  setCookie('category', JSON.stringify(category), 30);
-  setCookie('articles', JSON.stringify(articles), 30);
 
-  console.log(category);
-  console.log(articles);
-});
 
-// Function to set a cookie
+const category = document.querySelector('meta[property="article:section"]').getAttribute('content');
+// console.log("Category: ", category);
+
+
+const url = window.location.href;
+const urlParts = url.split('/');
+const slug = urlParts[urlParts.length - 1];
+// console.log("Slug: ", slug);
+
+// console.log("Current Client: ", client_id);
+
+
+let articleData = {
+  title,
+  description,
+  tag,
+  summary,
+  body,
+  publish_date,
+  update_date,
+  author,
+  category,
+  slug,
+  client_id,
+  user_id
+};
+
+console.log("Article Data:", articleData);
+
+
+// Send the articleData JSON to insert article API
+const apiUrl = 'http://localhost:3000/api/insertArticle';
+
+fetch(apiUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify(articleData),
+})
+  .then(response => response)
+  .then(data => {
+    console.log('Article data sent successfully:', data);
+  })
+  .catch(error => {
+    console.error('Error sending article data:', error);
+  });
+
 function setCookie(key, value, expirationDays) {
   const expirationDate = new Date();
   expirationDate.setDate(expirationDate.getDate() + expirationDays);
@@ -94,7 +116,6 @@ function setCookie(key, value, expirationDays) {
   document.cookie = cookieString;
 }
 
-// Function to retrieve a cookie and parse the value if it exists
 function getCookie(key) {
   const cookies = document.cookie.split(';');
 
@@ -115,4 +136,3 @@ function getCookie(key) {
 
   return null;
 }
-

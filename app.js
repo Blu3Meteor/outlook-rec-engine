@@ -6,8 +6,8 @@ const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const axios = require('axios');
 const cheerio = require('cheerio');
-
-
+const { exec } = require('child_process');
+const { log } = require('console');
 
 const app = express();
 app.use(cookieParser());
@@ -40,6 +40,20 @@ function generateUniqueKey() {
     return key;
 }
 
+function calculateJaccardIndex(arr1, arr2) {
+  // Calculate the intersection of the two arrays
+  const intersection = arr1.filter(value => arr2.includes(value));
+
+  // Calculate the union of the two arrays
+  const union = [...new Set([...arr1, ...arr2])];
+
+  // Calculate the Jaccard Index
+  const jaccardIndex = intersection.length / union.length;
+
+  return jaccardIndex;
+}
+
+
 
 app.get('/', (req, res) => {
   const userIdCookie = req.cookies.user_id;
@@ -62,9 +76,6 @@ app.get('/', (req, res) => {
     console.log(userId);
   }
 });
-
-  
-  
 
 app.get('/data', (req, res) => {
   // Extract the clientID and value from the query parameters
@@ -113,83 +124,6 @@ app.get('/data', (req, res) => {
       }
     }
   });
-
-
-
-
-
-  // handling scraping
-  // const url = req.query.url;
-  // const url = "https://www.outlookindia.com/national/manipur-s-peace-committee-an-exercise-in-futility-as-violence-continues-news-296425";
-
-  // // Fetch the HTML from the provided URL
-  // axios.get(url)
-  //   .then(response => {
-  //     const html = response.data;
-
-  //     // Load the HTML into Cheerio
-  //     const $ = cheerio.load(html);
-
-  //     // Extract the desired data from the HTML
-  //     const title = $('meta[property="og:title"]').attr('content');
-  //     const description = $('meta[property="og:description"]').attr('content');
-  //     const tags = [];
-  //     // Extract the article:tag properties
-  //     $('meta[property="article:tag"]').each((index, element) => {
-  //       const tag = $(element).attr('content');
-  //       tags.push(tag);
-  //     });
-  //     const summary = $('p.story-summary').text().trim();
-  //     // Extract the JSON-LD script containing the article data
-  //     const script = $('script[type="application/ld+json"]').html();
-  //     // Parse the JSON data
-  //     const jsonData = JSON.parse(script);
-  //     // Extract the articleBody from the JSON data
-  //     const articleBody = jsonData.articleBody;
-  //     const publish_date = $('meta[property="article:published_time"]').attr('content');
-  //     const update_date = $('meta[property="article:modified_time"]').attr('content');
-  //     const author = jsonData.author;
-  //     const category = $('meta[property="article:section"]').attr('content');
-  //     const subcategory = "subcategory";
-  //     const slug = url.parse(url).pathname.split('/').pop();
-  //     const client_id = clientID;
-  //     const user_id = req.cookies.user_id
-
-  //     let articleData = {
-  //       title,
-  //       description,
-  //       tags,
-  //       summary,
-  //       articleBody,
-  //       publish_date,
-  //       update_date,
-  //       author,
-  //       category,
-  //       subcategory,
-  //       slug,
-  //       client_id,
-  //       user_id
-  //     };
-
-  //     console.log(articleData);
-
-  //     // Send the articleData JSON to your API using axios or any other HTTP client library
-  //     axios.post('http://localhost:3000/api/insertArticle', articleData)
-  //       .then(apiResponse => {
-  //         console.log(apiResponse.data);
-  //         res.send('Data scraped and sent to API');
-  //       })
-  //       .catch(error => {
-  //         console.error('Error sending data to API:', error);
-  //         res.status(500).send('Error sending data to API');
-  //       });
-  //   })
-  //   .catch(error => {
-  //     console.error('Error fetching HTML:', error);
-  //     res.status(500).send('Error fetching HTML');
-  //   });
-
-
 });
 
 app.get('/orgs', (req, res) => {
@@ -283,18 +217,137 @@ connection.query(selectSql, [articleData.title], (error, results) => {
     console.log('Inserted ID:', insertResults.insertId);
   });
 });
+});
 
+app.get('/api/getRelatedStories', (req, res) => {
+  const connection = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: '',
+    database: 'outlookrecengine'
+  });
 
-})
+  connection.connect((error) => {
+    if (error) {
+      console.error('Error connecting to MySQL:', error);
+      return;
+    }
 
+    console.log('Connected to MySQL database');
+
+    const collectionID = 12;
+
+    const selectRelatedStories = `SELECT relation_id FROM related_stories WHERE collection_id = ?`;
+    console.log(selectRelatedStories);
+    console.log("Checking for existing matches...");
+    connection.query(selectRelatedStories, [collectionID], (error, results) => {
+      // console.log(results);
+      if (error) {
+        console.error('Error checking existing matches:', error);
+      }
+      if (results.length > 0) {
+        // Article has been matched before
+        const relatedStories = JSON.parse(JSON.stringify(results));;
+        // console.log(relatedStories);
+        const relatedStoryIDs = [];
+        for (let i = 0; i < relatedStories.length; i++) {
+          relatedStoryIDs.push(relatedStories[i].relation_id);
+        }
+        console.log(relatedStoryIDs);
+
+        const selectRelatedSlugs = `SELECT slug FROM articles where article_id = ?`;
+        
+        for (let i = 0; i < relatedStoryIDs.length; i++) {
+          connection.query(selectRelatedSlugs, [relatedStoryIDs[i]], (slugError, slugResults) => {
+            if (slugError) {
+              console.error("Error checking related slugs:", slugError);
+            }
+            if (slugResults.length > 0) {
+              const relatedSlugs = [];
+              for (let i = 0; i < slugResults.length; i++) {
+                relatedSlugs.push(JSON.parse(JSON.stringify(slugResults[i])));
+              }
+              console.log(relatedSlugs);
+            }
+          })
+        }
+
+      }
+      else {
+        // Article has not been matched yet
+
+        // Get article tags
+        selectArticleTags = `SELECT tag FROM articles WHERE article_id=?`;
+        connection.query(selectArticleTags, [collectionID], (tagError, tagResults) => {
+          if (tagError) {
+            console.error("Error fetching article tags:", tagError);
+          }
+          if (tagResults) {
+            // console.log("Tag Results:",tagResults);
+            tags = String(JSON.parse(JSON.stringify(tagResults[0])).tag);
+            tags = tags.split(",");
+            console.log(tags);
+
+            selectSearchTags = `SELECT tag FROM articles WHERE article_id!=?`;
+            connection.query(selectSearchTags, [collectionID], (searchTagError, searchTagResults) => {
+              if (searchTagError) {
+                console.error("Error fetching search tags:", searchTagError);
+              }
+              if (searchTagResults) {
+                // console.log(searchTagResults);
+                const searchTags = [];
+                for (let i = 0; i < searchTagResults.length; i++) {
+                  searchTags.push(String(JSON.parse(JSON.stringify(searchTagResults[i])).tag).split(","));
+                }
+                // console.log(searchTags);
+                const jaccardIndex = [];
+                for (let i = 0; i < searchTags.length; i++) {
+                  jaccardIndex.push(calculateJaccardIndex(tags, searchTags[i]));
+                }
+                console.log(jaccardIndex);
+
+                relationScore = [];
+
+                jaccardIndex.forEach(element => {
+                  if (element >= 0.04 && element < 0.06) {
+                    relationScore.push(0.3);
+                  }
+                  else if (element >= 0.06 && element < 0.08) {
+                    relationScore.push(0.4);
+                  }
+                  else if (element >= 0.08) {
+                    relationScore.push(0.5);
+                  }
+                  else {
+                    relationScore.push(0);
+                  }
+                });
+
+                console.log(relationScore);
+                
+              }
+            })
+          }
+        })
+      }
+    })
+  });
+
+});
 
 app.listen(3000, () => {
   console.log('Server started on port 3000');
 });
 
-
-
-
-
-
-
+// // Run the Python script when the app starts
+// exec('content_tags.py', (error, stdout, stderr) => {
+//   if (error) {
+//     console.error(`Error executing Python script: ${error.message}`);
+//     return;
+//   }
+//   if (stderr) {
+//     console.error(`Python script stderr: ${stderr}`);
+//     return;
+//   }
+//   console.log(`Python script output: ${stdout}`);
+// });

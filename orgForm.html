@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <form name="orgForm" action="connect.php" method="post">
+        <table>
+            <tr>
+                <td>
+                    <label for="orgName">Organization Name: </label>
+                </td>
+                <td>
+                    <input type="text" name="orgName">
+                </td>
+            </tr>
+    
+            <tr>
+                <td>
+                    <label for="orgAddress">Organization Address: </label>
+                </td>
+                <td>
+                    <input type="text" name="orgAddress">
+                </td>
+            </tr>
+    
+            <tr>
+                <td>
+                    <label for="orgPhone">Organization Phone Number: </label>
+                </td>
+                <td>
+                    <input type="number" name="orgPhone">
+                </td>
+            </tr>
+    
+            <tr>
+                <td>
+                    <label for="orgEmail">Organization Email ID: </label>
+                </td>
+                <td>
+                    <input type="email" name="orgEmail" id="orgEmail" required>
+                    <span id="emailError" style="color: red;"></span> <!-- Placeholder for error message -->
+                </td>
+            </tr>
+    
+            <tr>
+                <td>
+                    <label for="orgDomain">Organization Webpage URL: </label>
+                </td>
+                <td>
+                    <input type="url" name="orgDomain" required>
+                </td>
+            </tr>
+        </table>
+    
+        <input type="submit" name="Submit" id="Submit" value="Submit">
+    
+    
+    </form>
+</body>
+</html>
+
