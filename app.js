@@ -53,6 +53,33 @@ function calculateJaccardIndex(arr1, arr2) {
   return jaccardIndex;
 }
 
+// Function to calculate article similarity
+function calculateArticleSimilarity(article1Body, article2Body) {
+  // Execute the Python script synchronously
+  const pythonScript = exec('python', ['tf-idf.py', article1Body, article2Body]);
+
+  console.log('Python script stdout:', pythonScript.stdout.toString());
+  console.log('Python script stderr:', pythonScript.stderr.toString());
+  console.log('Python script status:', pythonScript.status);
+
+  if (pythonScript.error) {
+    // Error occurred while executing the script
+    console.error('Error:', pythonScript.error);
+    return null;
+  }
+
+  // Get the stdout data of the Python script
+  const result = pythonScript.stdout.toString().trim();
+
+  if (pythonScript.status !== 0) {
+    // Script exited with a non-zero code
+    console.error('Python script exited with code', pythonScript.status);
+    return null;
+  }
+
+  return result;
+}
+
 
 
 app.get('/', (req, res) => {
@@ -238,8 +265,8 @@ app.get('/api/getRelatedStories', (req, res) => {
     const collectionID = 12;
 
     const selectRelatedStories = `SELECT relation_id FROM related_stories WHERE collection_id = ?`;
-    console.log(selectRelatedStories);
-    console.log("Checking for existing matches...");
+    // console.log(selectRelatedStories);
+    // console.log("Checking for existing matches...");
     connection.query(selectRelatedStories, [collectionID], (error, results) => {
       // console.log(results);
       if (error) {
@@ -286,7 +313,7 @@ app.get('/api/getRelatedStories', (req, res) => {
             // console.log("Tag Results:",tagResults);
             tags = String(JSON.parse(JSON.stringify(tagResults[0])).tag);
             tags = tags.split(",");
-            console.log(tags);
+            // console.log(tags);
 
             selectSearchTags = `SELECT tag FROM articles WHERE article_id!=?`;
             connection.query(selectSearchTags, [collectionID], (searchTagError, searchTagResults) => {
@@ -302,29 +329,37 @@ app.get('/api/getRelatedStories', (req, res) => {
                 // console.log(searchTags);
                 const jaccardIndex = [];
                 for (let i = 0; i < searchTags.length; i++) {
-                  jaccardIndex.push(calculateJaccardIndex(tags, searchTags[i]));
+                  jaccardIndex.push(100 * calculateJaccardIndex(tags, searchTags[i]));
                 }
-                console.log(jaccardIndex);
+                console.log("Jaccard Index:", jaccardIndex);                
+              }
+            })
+          }
+        })
 
-                relationScore = [];
-
-                jaccardIndex.forEach(element => {
-                  if (element >= 0.04 && element < 0.06) {
-                    relationScore.push(0.3);
-                  }
-                  else if (element >= 0.06 && element < 0.08) {
-                    relationScore.push(0.4);
-                  }
-                  else if (element >= 0.08) {
-                    relationScore.push(0.5);
-                  }
-                  else {
-                    relationScore.push(0);
-                  }
-                });
-
-                console.log(relationScore);
-                
+        selectArticleBody = `SELECT body FROM articles where article_id=?`;
+        connection.query(selectArticleBody, [collectionID], (bodyError, bodyResults) => {
+          if (bodyError) {
+            console.error("Error fetching article body:", bodyError);
+          }
+          if (bodyResults) {
+            // console.log("Article Body:", bodyResults);
+            currentArticleBody = String(JSON.parse(JSON.stringify(bodyResults[0])).body);
+            // console.log(("Article Body:", currentArticleBody));
+            selectSearchBodies = `SELECT body from articles where article_id!=?`;
+            connection.query(selectSearchBodies, [collectionID], (searchBodyError, searchBodyResults) => {
+              if (searchBodyError) {
+                console.error("Error fetching search bodies:", searchBodyError);
+              }
+              if (searchBodyResults) {
+                const searchBodies = [];
+                const tfIDFScores = [];
+                for (let i = 0; i < 1; i++) {
+                  searchBodies.push(String(JSON.parse(JSON.stringify(searchBodyResults[i])).body));
+                  // console.log(searchBodies);
+                }
+                const similarityScore = calculateArticleSimilarity(currentArticleBody, searchBodies[0]);
+                console.log('Similarity Score:', similarityScore);
               }
             })
           }
