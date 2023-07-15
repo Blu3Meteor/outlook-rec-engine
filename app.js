@@ -4,10 +4,9 @@ const { v4: uuidv4 } = require('uuid');
 const mysql = require('mysql');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const { log } = require('console');
+
 
 const app = express();
 app.use(cookieParser());
@@ -40,6 +39,28 @@ function generateUniqueKey() {
     return key;
 }
 
+function createDictionary(keys, values) {
+  if (keys.length !== values.length) {
+    throw new Error('Keys and values arrays must have the same length');
+  }
+
+  const dictionary = {};
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const value = values[i];
+    dictionary[key] = value;
+  }
+
+  return dictionary;
+}
+
+function sortDictionary(dictionary) {
+  const sortedArray = Object.entries(dictionary).sort((a, b) => b[1] - a[1]);
+  const sortedDictionary = Object.fromEntries(sortedArray);
+  return sortedDictionary;
+}
+
 function calculateJaccardIndex(arr1, arr2) {
   // Calculate the intersection of the two arrays
   const intersection = arr1.filter(value => arr2.includes(value));
@@ -50,37 +71,50 @@ function calculateJaccardIndex(arr1, arr2) {
   // Calculate the Jaccard Index
   const jaccardIndex = intersection.length / union.length;
 
-  return jaccardIndex;
+  return jaccardIndex * 100;
 }
 
-// Function to calculate article similarity
-function calculateArticleSimilarity(article1Body, article2Body) {
-  // Execute the Python script synchronously
-  const pythonScript = exec('python', ['tf-idf.py', article1Body, article2Body]);
-
-  console.log('Python script stdout:', pythonScript.stdout.toString());
-  console.log('Python script stderr:', pythonScript.stderr.toString());
-  console.log('Python script status:', pythonScript.status);
-
-  if (pythonScript.error) {
-    // Error occurred while executing the script
-    console.error('Error:', pythonScript.error);
-    return null;
-  }
-
-  // Get the stdout data of the Python script
-  const result = pythonScript.stdout.toString().trim();
-
-  if (pythonScript.status !== 0) {
-    // Script exited with a non-zero code
-    console.error('Python script exited with code', pythonScript.status);
-    return null;
-  }
-
-  return result;
+function removeEscapeCharacters(str) {
+  const stringWithoutEscapes = str.replace(/\\(.)/g, '$1');
+  return stringWithoutEscapes;
 }
 
+async function compareData(currentBody, searchBody, allResult) {
+    // let data1 = "My name is Dron";
+    // let data2 = ["My name is Dron", "My name is Bruce", "My name is Santosh", "I am a boy"];
+    for (let i = 0; i < searchBody.length; i++) {
+        let result = await callPythonProcess(currentBody, searchBody[i]);
+        // console.log(result);
+        allResult.push(result);
+    }
+    // console.log(allResult);
+}
 
+async function callPythonProcess(body1, body2) {
+  body1 = removeEscapeCharacters(body1);
+  body2 = removeEscapeCharacters(body2);
+    return new Promise((resolve, reject) => {
+        const p = spawn('python', ['test1.py', body1, body2]);
+        let result = "";
+        p.stdout.on("data", (data) => {
+            // console.log("Result strout", parseFloat(data.toString()));
+            result = parseFloat(data.toString());
+        })
+        p.stderr.on("data", (data) => {
+            // console.log("Result strerr", data.toString());
+        })
+        p.on("close", (data) => {
+            if (data == 0) {
+                resolve(result);    
+            }
+            else {
+                reject(new Error("Error " + data.toString()));
+            }
+            // console.log("Result", data.toString());
+        })
+    })
+    
+}
 
 app.get('/', (req, res) => {
   const userIdCookie = req.cookies.user_id;
@@ -262,7 +296,7 @@ app.get('/api/getRelatedStories', (req, res) => {
 
     console.log('Connected to MySQL database');
 
-    const collectionID = 12;
+    const collectionID = 4;
 
     const selectRelatedStories = `SELECT relation_id FROM related_stories WHERE collection_id = ?`;
     // console.log(selectRelatedStories);
@@ -304,7 +338,7 @@ app.get('/api/getRelatedStories', (req, res) => {
         // Article has not been matched yet
 
         // Get article tags
-        selectArticleTags = `SELECT tag FROM articles WHERE article_id=?`;
+        selectArticleTags = `SELECT tag, body FROM articles WHERE article_id=?`;
         connection.query(selectArticleTags, [collectionID], (tagError, tagResults) => {
           if (tagError) {
             console.error("Error fetching article tags:", tagError);
@@ -312,54 +346,74 @@ app.get('/api/getRelatedStories', (req, res) => {
           if (tagResults) {
             // console.log("Tag Results:",tagResults);
             tags = String(JSON.parse(JSON.stringify(tagResults[0])).tag);
-            tags = tags.split(",");
+            currentTags = tags.split(",");
             // console.log(tags);
+            currentBody = String(JSON.parse(JSON.stringify(tagResults[0])).body);
+            // console.log("Article body:", currentBody);
 
-            selectSearchTags = `SELECT tag FROM articles WHERE article_id!=?`;
-            connection.query(selectSearchTags, [collectionID], (searchTagError, searchTagResults) => {
-              if (searchTagError) {
-                console.error("Error fetching search tags:", searchTagError);
+            selectSearchTags = `SELECT article_id, tag, body FROM articles WHERE article_id!=?`;
+            connection.query(selectSearchTags, [collectionID], async (searchError, searchResults) => {
+              if (searchError) {
+                console.error("Error fetching search tags:", searchError);
               }
-              if (searchTagResults) {
-                // console.log(searchTagResults);
+              if (searchResults) {
+                // console.log(searchResults);
                 const searchTags = [];
-                for (let i = 0; i < searchTagResults.length; i++) {
-                  searchTags.push(String(JSON.parse(JSON.stringify(searchTagResults[i])).tag).split(","));
+                const searchBody = [];
+                const searchIDs = [];
+                for (let i = 0; i < searchResults.length; i++) {
+                  searchTags.push(String(JSON.parse(JSON.stringify(searchResults[i])).tag).split(","));
+                  searchBody.push(String(JSON.parse(JSON.stringify(searchResults[i])).body));
+                  searchIDs.push(JSON.parse(JSON.stringify(searchResults[i])).article_id);
                 }
                 // console.log(searchTags);
+                // console.log(searchBody);
+                // console.log("Search IDs:",searchIDs);
                 const jaccardIndex = [];
-                for (let i = 0; i < searchTags.length; i++) {
-                  jaccardIndex.push(100 * calculateJaccardIndex(tags, searchTags[i]));
+                const similarityScores = [];
+                for (let i = 0; i < searchResults.length; i++) {
+                  jaccardIndex.push(calculateJaccardIndex(currentTags, searchTags[i]));
                 }
-                console.log("Jaccard Index:", jaccardIndex);                
-              }
-            })
-          }
-        })
+                await compareData(currentBody, searchBody, similarityScores);
+                console.log("Jaccard Index:", jaccardIndex);
+                console.log("Similarity Scores:", similarityScores);
 
-        selectArticleBody = `SELECT body FROM articles where article_id=?`;
-        connection.query(selectArticleBody, [collectionID], (bodyError, bodyResults) => {
-          if (bodyError) {
-            console.error("Error fetching article body:", bodyError);
-          }
-          if (bodyResults) {
-            // console.log("Article Body:", bodyResults);
-            currentArticleBody = String(JSON.parse(JSON.stringify(bodyResults[0])).body);
-            // console.log(("Article Body:", currentArticleBody));
-            selectSearchBodies = `SELECT body from articles where article_id!=?`;
-            connection.query(selectSearchBodies, [collectionID], (searchBodyError, searchBodyResults) => {
-              if (searchBodyError) {
-                console.error("Error fetching search bodies:", searchBodyError);
-              }
-              if (searchBodyResults) {
-                const searchBodies = [];
-                const tfIDFScores = [];
-                for (let i = 0; i < 1; i++) {
-                  searchBodies.push(String(JSON.parse(JSON.stringify(searchBodyResults[i])).body));
-                  // console.log(searchBodies);
+                // Step 1: Create an array to store the pairs of article ID and score
+                const articleScores = [];
+
+                // Step 2: Iterate over the arrays and create pairs
+                for (let i = 0; i < searchIDs.length; i++) {
+                  const articleID = searchIDs[i];
+                  const score = similarityScores[i];
+                  const pair = { articleID, score };
+                  articleScores.push(pair);
                 }
-                const similarityScore = calculateArticleSimilarity(currentArticleBody, searchBodies[0]);
-                console.log('Similarity Score:', similarityScore);
+
+                // Step 3: Sort the array in descending order based on the score
+                articleScores.sort((a, b) => b.score - a.score);
+
+                // Step 4: Retrieve the top 3 pairs
+                const top3Pairs = articleScores.slice(0, 3);
+
+                // Step 5: Extract the article IDs from the top 3 pairs
+                const top3ArticleIDs = top3Pairs.map((pair) => pair.articleID);
+                const top3Scores = top3Pairs.map((pair) => pair.score);
+
+                console.log('Top 3 Article IDs:', top3ArticleIDs);
+                console.log('Top 3 Article Scores:', top3Scores);
+
+                insertQuery = `INSERT INTO related_stories(collection_id, relation_id, score) VALUES ('?','?','?')`;
+                
+                for (let i = 0; i < top3ArticleIDs.length; i++) {
+                    connection.query(insertQuery, [collectionID, top3ArticleIDs[i], top3Scores[i]], (insertError, insertResults) => {
+                      if (insertError) {
+                        console.error("Error inserting related stories:", error);
+                      }
+                      if (insertResults) {
+                        console.log('Successfully Inserted ID:', insertResults.insertId);
+                      }
+                    })
+                }
               }
             })
           }
@@ -367,14 +421,13 @@ app.get('/api/getRelatedStories', (req, res) => {
       }
     })
   });
-
 });
 
 app.listen(3000, () => {
   console.log('Server started on port 3000');
 });
 
-// // Run the Python script when the app starts
+// Run the Python script when the app starts
 // exec('content_tags.py', (error, stdout, stderr) => {
 //   if (error) {
 //     console.error(`Error executing Python script: ${error.message}`);
